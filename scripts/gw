@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Defaults if REMOTE/BRANCH not supplied
+DEFAULT_REMOTE="${REMOTE:-origin}"
+
+die() { echo "error: $*" >&2; exit 1; }
+
+require_git_repo() {
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a git repo"
+}
+
+repo_root() { git rev-parse --show-toplevel; }
+repo_name() { basename "$(repo_root)"; }
+worktrees_dir() { echo "$(repo_root)/../$(repo_name).worktrees"; }
+
+# Return worktree path for a branch name (local branch, no refs/heads/)
+worktree_path_for_branch() {
+  local br="refs/heads/$1"
+  git -C "$(repo_root)" worktree list --porcelain |
+    awk -v br="$br" '
+      /^worktree /{p=$2}
+      /^branch /{b=$2}
+      /^$/ { if (b==br) { print p; exit } p=""; b="" }
+    '
+}
+
+# Ensure the remote exists; prompt to add if missing. May rename remote.
+# Outputs the chosen remote name on stdout.
+ensure_remote() {
+  local want="$1"
+  if git -C "$(repo_root)" remote get-url "$want" >/dev/null 2>&1; then
+    echo "$want"; return 0
+  fi
+  echo "Remote '$want' not found."
+  read -rp "URL for remote '$want': " url
+  [ -n "${url:-}" ] || die "remote URL required"
+  git -C "$(repo_root)" remote add "$want" "$url"
+  echo "$want"
+}
+
+parse_ref() {
+  local ref="${1:-}"; [[ -n "$ref" ]] || die "branch required"
+  local r b
+  if [[ "$ref" == *:* ]]; then
+    r="${ref%%:*}"
+    b="${ref#*:}"
+    [[ -n "$r" ]] || die "remote required"
+    [[ -n "$b" ]] || die "branch required"
+  else
+    r="$DEFAULT_REMOTE"
+    b="$ref"
+  fi
+  echo "$r" "$b"
+}
+
+cmd_usage() {
+  cat <<USAGE
+Usage:
+  $(basename "$0") add BRANCH            # uses remote '${DEFAULT_REMOTE}'
+  $(basename "$0") add REMOTE:BRANCH
+  $(basename "$0") list
+  $(basename "$0") remove BRANCH         # uses remote '${DEFAULT_REMOTE}'
+  $(basename "$0") remove REMOTE:BRANCH
+
+Notes:
+- Worktrees live under ../\$(basename REPO).worktrees/
+- Target branch name is '<branch>-gwt-review'
+USAGE
+}
+cmd_add() {
+  require_git_repo
+  read -r remote branch < <(parse_ref "${1:-}")
+  remote="$(ensure_remote "$remote")"
+
+  local target="${remote}-${branch}-gwt-review"
+  local wdir
+  wdir="$(worktrees_dir)"
+  mkdir -p "$wdir"
+  local path="$wdir/$target"
+
+  # If the branch is already checked out elsewhere, fail early.
+  if p=$(worktree_path_for_branch "$target"); [[ -n "${p:-}" ]]; then
+    die "branch '$target' already checked out at: $p"
+  fi
+
+  # Ensure the remote-tracking ref exists
+  git -C "$(repo_root)" fetch "$remote" "$branch"
+
+  git -C "$(repo_root)" worktree add -B "$target" "$path" "$remote/$branch"
+  echo "$path"
+}
+
+cmd_list() {
+  require_git_repo
+  local root; root="$(repo_root)"
+  git -C "$root" worktree list --porcelain |
+    awk '
+      BEGIN{p=""; b=""}
+      /^worktree /{p=substr($0,10)}
+      /^branch /{b=$2; sub(/^refs\/heads\//,"",b)}
+      /^$/{
+        if (b ~ /-gwt-review$/ || p ~ /-gwt-review$/) {
+          if (b=="") { bb=p; sub(/^.*\//,"",bb); b=bb }
+          print b "\t" p
+        }
+        p=""; b=""
+      }' |
+    while IFS=$'\t' read -r name path; do
+      # Resolve upstream like origin/feature/x
+      up="$(git -C "$root" for-each-ref --format='%(upstream:short)' "refs/heads/$name" 2>/dev/null || true)"
+      if [[ -n "$up" ]]; then
+        printf "%-40s %s\n" "${up%%/*}:${up#*/}" "$path"
+      else
+        # Fallback: derive from local branch name
+        base="${name%-gwt-review}"
+        if [[ "$base" == *-* ]]; then
+          printf "%-40s %s\n" "${base%%-*}:${base#*-}" "$path"
+        else
+          printf "%-40s %s\n" "?:${base}" "$path"
+        fi
+      fi
+    done
+}
+
+cmd_remove() {
+  require_git_repo
+  read -r remote branch < <(parse_ref "${1:-}")
+  remote="$(ensure_remote "$remote")"
+  
+  local target="${remote}-${branch}-gwt-review"
+
+  local path
+  path="$(worktree_path_for_branch "$target")"
+  [[ -z "$path" ]] && path="$(worktrees_dir)/$target"
+
+  local acted=false
+
+  if [[ -d "$path" ]]; then
+    git -C "$(repo_root)" worktree remove --force "$path"
+    acted=true
+  fi
+
+  if git -C "$(repo_root)" show-ref --verify --quiet "refs/heads/$target"; then
+    git -C "$(repo_root)" branch -D "$target"
+    acted=true
+  fi
+
+  if $acted; then
+    echo "removed: $target"
+  else
+    echo "do nothing: $target not found"
+  fi
+}
+
+main() {
+  local cmd="${1:-}"; shift || true
+  case "$cmd" in
+    add)    cmd_add "${1:-}";;
+    list)   cmd_list;;
+    remove) cmd_remove "${1:-}";;
+    -h|--help|"") cmd_usage;;
+    *) die "unknown command: $cmd";;
+  esac
+}
+
+main "$@"
