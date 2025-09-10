@@ -32,7 +32,7 @@ ensure_remote() {
   if git -C "$(repo_root)" remote get-url "$want" >/dev/null 2>&1; then
     echo "$want"; return 0
   fi
-  echo "Remote '$want' not found."
+  echo "Remote '$want' not found." >&2
   read -rp "URL for remote '$want': " url
   [ -n "${url:-}" ] || die "remote URL required"
   git -C "$(repo_root)" remote add "$want" "$url"
