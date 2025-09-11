@@ -57,20 +57,27 @@ parse_ref() {
 cmd_usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") add BRANCH            # uses remote '${DEFAULT_REMOTE}'
-  $(basename "$0") add REMOTE:BRANCH
+  $(basename "$0") add [--open] BRANCH            # uses remote '${DEFAULT_REMOTE}'
+  $(basename "$0") add [--open] REMOTE:BRANCH
   $(basename "$0") list
   $(basename "$0") remove BRANCH         # uses remote '${DEFAULT_REMOTE}'
   $(basename "$0") remove REMOTE:BRANCH
 
+Options:
+  --open          Open the new worktree in VS Code after creation.
+
 Notes:
 - Worktrees live under ../\$(basename REPO).worktrees/
-- Target branch name is '<branch>-gwt-review'
+- Target branch name is '<remote>-<branch>-gwt-review'
 USAGE
 }
+
 cmd_add() {
+  local open_in_vscode="$1"; shift
+  local ref="${1:-}"
+
   require_git_repo
-  read -r remote branch < <(parse_ref "${1:-}")
+  read -r remote branch < <(parse_ref "$ref")
   remote="$(ensure_remote "$remote")"
 
   local target="${remote}-${branch}-gwt-review"
@@ -88,7 +95,16 @@ cmd_add() {
   git -C "$(repo_root)" fetch "$remote" "$branch"
 
   git -C "$(repo_root)" worktree add -B "$target" "$path" "$remote/$branch"
-  echo "$path"
+  echo "Worktree created at: $path"
+
+  if [[ "$open_in_vscode" == "true" ]]; then
+    if ! command -v code >/dev/null 2>&1; then
+      echo "warning: 'code' command not found. Cannot open in VS Code." >&2
+      return
+    fi
+    echo "Opening in VS Code..."
+    code "$path"
+  fi
 }
 
 cmd_list() {
@@ -154,9 +170,28 @@ cmd_remove() {
 }
 
 main() {
+  local open_in_vscode=false
+  local args=()
+
+  # Simple flag parsing to find --open
+  for arg in "$@"; do
+    case "$arg" in
+      --open)
+        open_in_vscode=true
+        ;;
+      *)
+        args+=("$arg")
+        ;;
+    esac
+  done
+
+  # Restore positional parameters without --open
+  set -- "${args[@]}"
+
   local cmd="${1:-}"; shift || true
   case "$cmd" in
-    add)    cmd_add "${1:-}";;
+    # Pass the flag state to cmd_add
+    add)    cmd_add "$open_in_vscode" "${1:-}";;
     list)   cmd_list;;
     remove) cmd_remove "${1:-}";;
     -h|--help|"") cmd_usage;;
