@@ -57,16 +57,16 @@ parse_ref() {
 cmd_usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") add [--open] BRANCH            # uses remote '${DEFAULT_REMOTE}'
   $(basename "$0") add [--open] REMOTE:BRANCH
+  $(basename "$0") cd REMOTE:BRANCH
   $(basename "$0") list
-  $(basename "$0") remove BRANCH         # uses remote '${DEFAULT_REMOTE}'
   $(basename "$0") remove REMOTE:BRANCH
 
 Options:
   --open          Open the new worktree in VS Code after creation.
 
 Notes:
+- The 'cd' command requires a shell function wrapper. See documentation.
 - Worktrees live under ../\$(basename REPO).worktrees/
 - Target branch name is '<remote>-<branch>-gwt-review'
 USAGE
@@ -107,6 +107,23 @@ cmd_add() {
   fi
 }
 
+cmd_cd() {
+  require_git_repo
+  read -r remote branch < <(parse_ref "${1:-}")
+  
+  local target_branch="${remote}-${branch}-gwt-review"
+  
+  local path
+  path="$(worktree_path_for_branch "$target_branch")"
+
+  if [[ -n "$path" ]]; then
+    # Output the command for the shell function to evaluate
+    echo "cd \"$path\""
+  else
+    die "worktree for '$remote:$branch' not found."
+  fi
+}
+
 cmd_list() {
   require_git_repo
   local root; root="$(repo_root)"
@@ -142,7 +159,6 @@ cmd_list() {
 cmd_remove() {
   require_git_repo
   read -r remote branch < <(parse_ref "${1:-}")
-  remote="$(ensure_remote "$remote")"
   
   local target="${remote}-${branch}-gwt-review"
 
@@ -190,8 +206,8 @@ main() {
 
   local cmd="${1:-}"; shift || true
   case "$cmd" in
-    # Pass the flag state to cmd_add
     add)    cmd_add "$open_in_vscode" "${1:-}";;
+    cd)     cmd_cd "${1:-}";;
     list)   cmd_list;;
     remove) cmd_remove "${1:-}";;
     -h|--help|"") cmd_usage;;
