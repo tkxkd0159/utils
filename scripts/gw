@@ -214,7 +214,7 @@ cmd_list() {
       /^worktree /{p=substr($0,10)}
       /^branch /{b=$2; sub(/^refs\/heads\//,"",b)}
       /^$/{
-        if (b ~ /-gwt-[^/]+$/ || p ~ /-gwt-[^/]+$/) {
+        if (b ~ /-gwt-[^\/]+$/ || p ~ /-gwt-[^\/]+$/) {
           if (b=="") { bb=p; sub(/^.*\//,"",bb); b=bb }
           print b "\t" p
         }
@@ -305,7 +305,7 @@ cmd_install() {
 # Git worktree wrapper function for gw cd command
 gw() {
   if [[ "$1" == "cd" ]]; then
-    eval "$(command gw "$@")"
+    eval "$(GW_WRAPPER=1 command gw "$@")"
   else
     command gw "$@"
   fi
