@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Defaults if REMOTE/BRANCH not supplied
+# Defaults if REMOTE not supplied
 DEFAULT_REMOTE="${REMOTE:-origin}"
 
 die() { echo "error: $*" >&2; exit 1; }
@@ -57,30 +57,60 @@ parse_ref() {
 cmd_usage() {
   cat <<USAGE
 Usage:
-  $(basename "$0") add [--open] REMOTE:BRANCH
-  $(basename "$0") cd REMOTE:BRANCH
+  $(basename "$0") install
+  $(basename "$0") add [--open] PURPOSE [REMOTE:]BRANCH
+  $(basename "$0") open PURPOSE [REMOTE:]BRANCH
+  $(basename "$0") cd PURPOSE [REMOTE:]BRANCH
   $(basename "$0") list
-  $(basename "$0") remove REMOTE:BRANCH
+  $(basename "$0") remove PURPOSE [REMOTE:]BRANCH
+
+Commands:
+  install         Auto-install shell integration (required for 'cd' command)
+  add             Create a new worktree for the specified branch
+  open            Open an existing worktree in VS Code
+  cd              Change to an existing worktree directory (requires 'gw install')
+  list            List all git-worktree worktrees managed by this tool
+  remove          Remove a worktree and its local branch
+
+Arguments:
+  PURPOSE         Required. Purpose/usage for the worktree
+                  Examples: review, feature, bugfix, experiment, hotfix
+  [REMOTE:]BRANCH Branch to work with. REMOTE defaults to '$DEFAULT_REMOTE' if omitted.
 
 Options:
-  --open          Open the new worktree in VS Code after creation.
+  --open          Open the new worktree in VS Code after creation (add only)
+
+Quick Start:
+  $(basename "$0") install                             # First-time setup (one-time only)
+  $(basename "$0") add review feature/new-ui           # Create review worktree
+  $(basename "$0") cd review feature/new-ui            # Change to review worktree
+
+Examples:
+  $(basename "$0") add feature feature/new-ui          # Create feature worktree
+  $(basename "$0") add --open bugfix bug-123           # Create and open bugfix worktree
+  $(basename "$0") cd feature upstream:feature/new-ui  # Change to feature worktree (upstream remote)
+  $(basename "$0") open experiment test-idea           # Open experiment worktree
+  $(basename "$0") list                                # List all managed worktrees
+  $(basename "$0") remove feature feature/new-ui       # Remove feature worktree
 
 Notes:
-- The 'cd' command requires a shell function wrapper. See documentation.
+- Run '$(basename "$0") install' once to enable the 'cd' command
 - Worktrees live under ../\$(basename REPO).worktrees/
-- Target branch name is '<remote>-<branch>-gwt-review'
+- Target branch name pattern: '<remote>-<branch>-gwt-<purpose>'
+- PURPOSE is always required to make worktree intent explicit
 USAGE
 }
 
 cmd_add() {
   local open_in_vscode="$1"; shift
+  local purpose="$1"; shift
   local ref="${1:-}"
 
   require_git_repo
   read -r remote branch < <(parse_ref "$ref")
   remote="$(ensure_remote "$remote")"
 
-  local target="${remote}-${branch}-gwt-review"
+  local target="${remote}-${branch}-gwt-${purpose}"
   local wdir
   wdir="$(worktrees_dir)"
   mkdir -p "$wdir"
@@ -95,7 +125,7 @@ cmd_add() {
   git -C "$(repo_root)" fetch "$remote" "$branch"
 
   git -C "$(repo_root)" worktree add -B "$target" "$path" "$remote/$branch"
-  echo "Worktree created at: $path"
+  echo "Worktree created at: $path (purpose: $purpose)"
 
   if [[ "$open_in_vscode" == "true" ]]; then
     if ! command -v code >/dev/null 2>&1; then
@@ -107,21 +137,72 @@ cmd_add() {
   fi
 }
 
-cmd_cd() {
+cmd_open() {
+  local purpose="$1"; shift
+  local ref="${1:-}"
+
   require_git_repo
-  read -r remote branch < <(parse_ref "${1:-}")
-  
-  local target_branch="${remote}-${branch}-gwt-review"
-  
+  read -r remote branch < <(parse_ref "$ref")
+
+  local target_branch="${remote}-${branch}-gwt-${purpose}"
+
   local path
   path="$(worktree_path_for_branch "$target_branch")"
 
-  if [[ -n "$path" ]]; then
-    # Output the command for the shell function to evaluate
-    echo "cd \"$path\""
-  else
-    die "worktree for '$remote:$branch' not found."
+  if [[ -z "$path" ]]; then
+    die "worktree for '$remote:$branch' (purpose: $purpose) not found. Use 'gw add --purpose $purpose' to create it first."
   fi
+
+  if ! command -v code >/dev/null 2>&1; then
+    die "'code' command not found. Cannot open in VS Code."
+  fi
+
+  echo "Opening worktree at: $path"
+  code "$path"
+}
+
+cmd_cd() {
+  local purpose="$1"; shift
+  local ref="${1:-}"
+
+  require_git_repo
+  read -r remote branch < <(parse_ref "$ref")
+
+  local target_branch="${remote}-${branch}-gwt-${purpose}"
+
+  local path
+  path="$(worktree_path_for_branch "$target_branch")"
+
+  if [[ -z "$path" ]]; then
+    die "worktree for '$remote:$branch' (purpose: $purpose) not found. Use 'gw add --purpose $purpose' to create it first."
+  fi
+
+  # Check if we're being called from the shell function wrapper
+  if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ -t 1 ]]; then
+    # Direct execution - shell function not installed
+    cat >&2 <<'INTEGRATION_HELP'
+The 'cd' command requires shell integration to work.
+
+Run this command to auto-install:
+  gw install
+
+Or manually add this function to your ~/.bashrc or ~/.zshrc:
+
+  gw() {
+    if [[ "$1" == "cd" ]]; then
+      eval "$(command gw "$@")"
+    else
+      command gw "$@"
+    fi
+  }
+
+Then reload your shell: source ~/.bashrc
+INTEGRATION_HELP
+    exit 1
+  fi
+
+  # Output the command for the shell function to evaluate
+  echo "cd \"$path\""
 }
 
 cmd_list() {
@@ -133,34 +214,43 @@ cmd_list() {
       /^worktree /{p=substr($0,10)}
       /^branch /{b=$2; sub(/^refs\/heads\//,"",b)}
       /^$/{
-        if (b ~ /-gwt-review$/ || p ~ /-gwt-review$/) {
+        if (b ~ /-gwt-[^/]+$/ || p ~ /-gwt-[^/]+$/) {
           if (b=="") { bb=p; sub(/^.*\//,"",bb); b=bb }
           print b "\t" p
         }
         p=""; b=""
       }' |
     while IFS=$'\t' read -r name path; do
+      # Extract purpose from branch name: <remote>-<branch>-gwt-<purpose>
+      purpose=""
+      if [[ "$name" =~ -gwt-([^/]+)$ ]]; then
+        purpose="${BASH_REMATCH[1]}"
+      fi
+
       # Resolve upstream like origin/feature/x
       up="$(git -C "$root" for-each-ref --format='%(upstream:short)' "refs/heads/$name" 2>/dev/null || true)"
       if [[ -n "$up" ]]; then
-        printf "%-40s %s\n" "${up%%/*}:${up#*/}" "$path"
+        printf "%-40s %-10s %s\n" "${up%%/*}:${up#*/}" "[$purpose]" "$path"
       else
         # Fallback: derive from local branch name
-        base="${name%-gwt-review}"
+        base="${name%-gwt-*}"
         if [[ "$base" == *-* ]]; then
-          printf "%-40s %s\n" "${base%%-*}:${base#*-}" "$path"
+          printf "%-40s %-10s %s\n" "${base%%-*}:${base#*-}" "[$purpose]" "$path"
         else
-          printf "%-40s %s\n" "?:${base}" "$path"
+          printf "%-40s %-10s %s\n" "?:${base}" "[$purpose]" "$path"
         fi
       fi
     done
 }
 
 cmd_remove() {
+  local purpose="$1"; shift
+  local ref="${1:-}"
+
   require_git_repo
-  read -r remote branch < <(parse_ref "${1:-}")
-  
-  local target="${remote}-${branch}-gwt-review"
+  read -r remote branch < <(parse_ref "$ref")
+
+  local target="${remote}-${branch}-gwt-${purpose}"
 
   local path
   path="$(worktree_path_for_branch "$target")"
@@ -185,33 +275,115 @@ cmd_remove() {
   fi
 }
 
+cmd_install() {
+  local shell_name="${SHELL##*/}"
+  local rc_file=""
+
+  # Detect shell and rc file
+  case "$shell_name" in
+    bash)
+      rc_file="$HOME/.bashrc"
+      ;;
+    zsh)
+      rc_file="$HOME/.zshrc"
+      ;;
+    *)
+      die "unsupported shell: $shell_name (only bash and zsh are supported)"
+      ;;
+  esac
+
+  # Check if already installed
+  if [[ -f "$rc_file" ]] && grep -q "gw() {" "$rc_file" 2>/dev/null; then
+    echo "Shell integration already installed in $rc_file"
+    echo "The 'gw cd' command should work after restarting your shell."
+    return 0
+  fi
+
+  # Shell function to install
+  local function_code
+  read -r -d '' function_code <<'EOF' || true
+# Git worktree wrapper function for gw cd command
+gw() {
+  if [[ "$1" == "cd" ]]; then
+    eval "$(command gw "$@")"
+  else
+    command gw "$@"
+  fi
+}
+EOF
+
+  # Add to rc file
+  echo "$function_code" >> "$rc_file"
+
+  echo "✓ Shell integration installed to $rc_file"
+  echo ""
+  echo "To activate, run one of:"
+  echo "  source $rc_file"
+  echo "  exec $shell_name"
+  echo "  # Or just restart your terminal"
+  echo ""
+  echo "After that, 'gw cd' will work like a native cd command!"
+}
+
 main() {
   local open_in_vscode=false
   local args=()
 
-  # Simple flag parsing to find --open
-  for arg in "$@"; do
-    case "$arg" in
+  # Parse flags (only --open)
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
       --open)
         open_in_vscode=true
+        shift
         ;;
       *)
-        args+=("$arg")
+        args+=("$1")
+        shift
         ;;
     esac
   done
 
-  # Restore positional parameters without --open
+  # Restore positional parameters without flags
   set -- "${args[@]}"
 
   local cmd="${1:-}"; shift || true
   case "$cmd" in
-    add)    cmd_add "$open_in_vscode" "${1:-}";;
-    cd)     cmd_cd "${1:-}";;
-    list)   cmd_list;;
-    remove) cmd_remove "${1:-}";;
-    -h|--help|"") cmd_usage;;
-    *) die "unknown command: $cmd";;
+    install)
+      cmd_install
+      ;;
+    add)
+      local purpose="${1:-}"
+      [[ -n "$purpose" ]] || die "PURPOSE required. Usage: gw add [--open] PURPOSE [REMOTE:]BRANCH"
+      shift
+      cmd_add "$open_in_vscode" "$purpose" "${1:-}"
+      ;;
+    open)
+      local purpose="${1:-}"
+      [[ -n "$purpose" ]] || die "PURPOSE required. Usage: gw open PURPOSE [REMOTE:]BRANCH"
+      shift
+      cmd_open "$purpose" "${1:-}"
+      ;;
+    cd)
+      local purpose="${1:-}"
+      [[ -n "$purpose" ]] || die "PURPOSE required. Usage: gw cd PURPOSE [REMOTE:]BRANCH"
+      shift
+      cmd_cd "$purpose" "${1:-}"
+      ;;
+    remove)
+      local purpose="${1:-}"
+      [[ -n "$purpose" ]] || die "PURPOSE required. Usage: gw remove PURPOSE [REMOTE:]BRANCH"
+      shift
+      cmd_remove "$purpose" "${1:-}"
+      ;;
+    list)
+      cmd_list
+      ;;
+    -h|--help|"")
+      cmd_usage
+      ;;
+    *)
+      die "unknown command: $cmd"
+      ;;
   esac
 }
 
