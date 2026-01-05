@@ -178,7 +178,7 @@ cmd_cd() {
   fi
 
   # Check if we're being called from the shell function wrapper
-  if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [[ -t 1 ]]; then
+  if [[ -z "${GW_WRAPPER:-}" ]]; then
     # Direct execution - shell function not installed
     cat >&2 <<'INTEGRATION_HELP'
 The 'cd' command requires shell integration to work.
@@ -190,7 +190,7 @@ Or manually add this function to your ~/.bashrc or ~/.zshrc:
 
   gw() {
     if [[ "$1" == "cd" ]]; then
-      eval "$(command gw "$@")"
+      eval "$(GW_WRAPPER=1 command gw "$@")"
     else
       command gw "$@"
     fi
