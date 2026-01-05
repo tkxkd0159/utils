@@ -19,6 +19,23 @@ This repository contains utilities and templates for code review workflows and g
 
 The `gw` script manages isolated git worktrees with explicit purpose tracking. It creates worktrees in a sibling directory named `<repo>.worktrees/`.
 
+### Installation
+
+**Recommended: One-line installation**
+```bash
+curl -sSL https://raw.githubusercontent.com/tkxkd0159/utils/main/install.sh | bash -s gw
+```
+
+Install multiple tools:
+```bash
+curl -sSL https://raw.githubusercontent.com/tkxkd0159/utils/main/install.sh | bash -s -- gw tool2
+```
+
+This will:
+- Download the specified tool(s) to the appropriate location
+- Set up shell integration automatically (for `gw`)
+- Show you the next steps
+
 ### Common Commands
 
 ```bash
