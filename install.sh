@@ -73,10 +73,10 @@ echo "==> Running post-installation setup..."
 # gw: Shell integration
 if [[ " ${INSTALLED_SCRIPTS[*]} " =~ " gw " ]]; then
   echo "==> Setting up gw shell integration..."
-  if "$INSTALL_DIR/gw" install 2>/dev/null; then
+  if "$INSTALL_DIR/gw" install 2>&1; then
     echo "    ✓ gw shell integration configured"
   else
-    echo "    ⚠ Shell integration setup skipped (run 'gw install' manually)"
+    echo "    ⚠ Shell integration setup failed (run 'gw install' manually later)"
   fi
 fi
 

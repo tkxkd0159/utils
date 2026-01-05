@@ -286,16 +286,40 @@ cmd_remove() {
 }
 
 cmd_install() {
-  local shell_name="${SHELL##*/}"
+  local shell_name=""
   local rc_file=""
+  # Detect shell: if running under sudo, get the actual user's shell
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    if command -v getent >/dev/null 2>&1; then
+      # Linux
+      shell_name=$(getent passwd "$SUDO_USER" | cut -d: -f7 | xargs basename)
+    elif command -v dscl >/dev/null 2>&1; then
+      # macOS
+      shell_name=$(dscl . -read "/Users/$SUDO_USER" UserShell | awk '{print $2}' | xargs basename)
+    else
+      # Fallback: read /etc/passwd directly
+      shell_name=$(grep "^$SUDO_USER:" /etc/passwd | cut -d: -f7 | xargs basename)
+    fi
+  else
+    # Normal execution - use current shell
+    shell_name="${SHELL##*/}"
+  fi
+
+  local user_home=""
+  if [[ -n "${SUDO_USER:-}" ]]; then
+    # Running under sudo - get the real user's home
+    user_home=$(eval echo "~$SUDO_USER")
+  else
+    user_home="$HOME"
+  fi
 
   # Detect shell and rc file
   case "$shell_name" in
     bash)
-      rc_file="$HOME/.bashrc"
+      rc_file="$user_home/.bashrc"
       ;;
     zsh)
-      rc_file="$HOME/.zshrc"
+      rc_file="$user_home/.zshrc"
       ;;
     *)
       die "unsupported shell: $shell_name (only bash and zsh are supported)"
@@ -333,6 +357,7 @@ EOF
   echo "  # Or just restart your terminal"
   echo ""
   echo "After that, 'gw cd' will work like a native cd command!"
+  return 0
 }
 
 main() {
