@@ -1,7 +1,5 @@
 # utils
 
-Developer utilities for git worktree management and code review workflows.
-
 ## gw - Git Worktree Manager
 
 A powerful CLI tool for managing isolated git worktrees with explicit purpose tracking. Perfect for code reviews, feature development, bug fixes, and experiments.
