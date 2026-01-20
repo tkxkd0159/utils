@@ -333,6 +333,7 @@ dependencies = [
     { name = "faker" },
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
+    { name = "ruff" },
 ]
 
 [package.metadata]
@@ -340,6 +341,7 @@ requires-dist = [
     { name = "faker", specifier = ">=40.1.2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.25.0" },
+    { name = "ruff", specifier = ">=0.14.13" },
 ]
 
 [[package]]

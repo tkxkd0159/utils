@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "weather": {
+      "type": "stdio",
+      "command": "podman",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "localhost/mcp-weather:latest"
+      ],
+      "env": {}
+    }
+  }
+}

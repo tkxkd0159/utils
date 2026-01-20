@@ -1,7 +1,6 @@
 from typing import Any
 
 import httpx
-from faker import Faker
 from mcp.server.fastmcp import FastMCP
 
 # Initialize FastMCP server
@@ -93,9 +92,44 @@ Forecast: {period["detailedForecast"]}
     return "\n---\n".join(forecasts)
 
 
+@mcp.prompt()
+def inputs(city: str, type: str = "forecast") -> str:
+    """Generate a alert/forecast prompt
+
+    This creates a reusable slash-command (e.g. /mcp.weather.inputs))
+    """
+
+    match type:
+        case "forecast":
+            prompt = f"What's the weather of {city}."
+        case "alert":
+            prompt = f"What's the weather alerts are active for {city}."
+
+    return prompt
+
+
+# MCP resource's URL is virtual and does not correspond to a real network location
+# You can define any URL scheme that makes sense for your application
+@mcp.resource("greeting://{name}")
+def get_greeting(name: str) -> str:
+    """Get a personalized greeting"""
+    return f"Hello, {name}! This is your weather assistant."
+
+
+@mcp.resource("file://pyproject")
+def read_project_setting() -> str:
+    from pathlib import Path
+
+    return Path("pyproject.toml").read_text()
+
+
+@mcp.tool()
+def get_project_setting() -> str:
+    """Get project setting of weather mcp server"""
+    return "fetch the project setting from file://pyproject"
+
+
 def main():
-    fake = Faker()
-    print(fake.name())
     # Initialize and run the server
     mcp.run(transport="stdio")
 

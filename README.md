@@ -66,3 +66,10 @@ gw --help                                  # Show help
 ### Documentation
 
 See [CLAUDE.md](CLAUDE.md) for detailed documentation and code review workflow integration.
+
+
+## MCP
+### Weather
+- What's the weather of WA, Bellevue?
+- What's the weather alerts are active for NY?
+- Get the project setting from weather server (use resource, only available in Claude Code now)

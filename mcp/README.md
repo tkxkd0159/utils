@@ -1,0 +1,4 @@
+# Setup
+```sh
+uv sync
+```

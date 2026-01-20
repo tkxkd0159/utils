@@ -4,10 +4,7 @@ version = "0.1.0"
 description = "A simple MCP weather server"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-    "httpx>=0.28.1",
-    "mcp[cli]>=1.25.0",
-]
+dependencies = ["httpx>=0.28.1", "mcp[cli]>=1.25.0"]
 
 [project.scripts]
 weather = "weather:main"
@@ -15,5 +12,5 @@ weather = "weather:main"
 [dependency-groups]
 dev = ["ruff>=0.14.13"]
 
-[tool.uv]
-default-groups = ["dev"]
+# [tool.uv]
+# default-groups = ["dev"]
