@@ -72,4 +72,9 @@ See [CLAUDE.md](CLAUDE.md) for detailed documentation and code review workflow i
 ### Weather
 - What's the weather of WA, Bellevue?
 - What's the weather alerts are active for NY?
+- MCP prompt command
+  -  /weather:inputs (claude code)
+  -  /mcp.weather.inputs (vscode)
 - Get the project setting from weather server (use resource, only available in Claude Code now)
+  - Copilot chat requires to add resource explicitly, so it's not as seamless as Claude Code. (2026-02)
+  - But Claude code doesn't support dynamic resource path yet. (2026-02)

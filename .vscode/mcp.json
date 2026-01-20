@@ -1,8 +1,21 @@
 {
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "test-key",
+      "description": "Safe Test API Key",
+      "password": true
+    }
+  ],
   "servers": {
     "weather": {
+      "type": "stdio",
       "command": "podman",
-      "args": ["run", "-i", "--rm", "localhost/mcp-weather:latest"]
+      "args": ["run", "-i", "--rm", "-e", "TEST_API_KEY=${input:test-key}", "localhost/mcp-weather:latest"]
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem"]
     }
   }
 }
