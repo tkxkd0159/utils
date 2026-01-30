@@ -107,6 +107,42 @@ cmd_add() {
   local ref="${1:-}"
 
   require_git_repo
+
+  # Detect if ref is a SHA (40 hex chars or short SHA)
+  if [[ "$ref" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+    # SHA ref: no remote/branch, just commit
+    local sha="$ref"
+    local target="sha-${sha}-gwt-${purpose}"
+    local wdir
+    wdir="$(worktrees_dir)"
+    mkdir -p "$wdir"
+    local path="$wdir/$target"
+
+    # If the SHA worktree is already checked out elsewhere, fail early.
+    if p=$(worktree_path_for_branch "$target"); [[ -n "${p:-}" ]]; then
+      die "commit '$sha' already checked out at: $p"
+    fi
+
+    # Validate SHA exists
+    if ! git -C "$(repo_root)" cat-file -e "$sha"^{commit} 2>/dev/null; then
+      die "commit '$sha' not found"
+    fi
+
+    git -C "$(repo_root)" worktree add "$path" "$sha"
+    echo "Worktree created at: $path (purpose: $purpose, sha: $sha)"
+
+    if [[ "$open_in_vscode" == "true" ]]; then
+      if ! command -v code >/dev/null 2>&1; then
+        echo "warning: 'code' command not found. Cannot open in VS Code." >&2
+        return
+      fi
+      echo "Opening in VS Code..."
+      code "$path"
+    fi
+    return
+  fi
+
+  # Otherwise, treat as branch (existing logic)
   read -r remote branch < <(parse_ref "$ref")
   remote="$(ensure_remote "$remote")"
 
