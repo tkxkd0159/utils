@@ -122,10 +122,12 @@ cmd_add() {
   if [[ "$ref" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
     local sha="$ref"
     # Validate SHA exists
-    if ! git -C "$(repo_root)" cat-file -e "$sha"^{commit} 2>/dev/null; then
+    if ! git -C "$(repo_root)" cat-file -e "$sha^{commit}" 2>/dev/null; then
       die "commit '$sha' not found"
     fi
     git -C "$(repo_root)" worktree add "$path" "$sha"
+    # Store the sha in a file for later listing
+      echo "${sha:0:7}" | tr -d ':' > "$path/.sha"
     echo "Worktree created at: $path (sha: $sha, unique: $unique)"
     if [[ "$open_in_vscode" == "true" ]]; then
       if ! command -v code >/dev/null 2>&1; then
@@ -138,15 +140,25 @@ cmd_add() {
     return
   fi
 
-  # Otherwise, treat as branch
+  # Otherwise, treat as branch (local or remote)
   read -r remote branch < <(parse_ref "$ref")
-  remote="$(ensure_remote "$remote")"
-
-  # Ensure the remote-tracking ref exists
-  git -C "$(repo_root)" fetch "$remote" "$branch"
-
-  git -C "$(repo_root)" worktree add -B "$unique" "$path" "$remote/$branch"
-  echo "Worktree created at: $path (branch: $remote/$branch, unique: $unique)"
+  # Check if local branch exists
+  if git -C "$(repo_root)" show-ref --verify --quiet "refs/heads/$branch"; then
+    # Local branch exists, use it directly
+    git -C "$(repo_root)" worktree add -B "$unique" "$path" "$branch"
+    # Store the sha of the branch HEAD
+      git -C "$(repo_root)" rev-parse "$branch" | cut -c1-7 | tr -d ':' > "$path/.sha"
+    echo "Worktree created at: $path (local branch: $branch, unique: $unique)"
+  else
+    # Try remote branch
+    remote="$(ensure_remote "$remote")"
+    # Ensure the remote-tracking ref exists
+    git -C "$(repo_root)" fetch "$remote" "$branch"
+    git -C "$(repo_root)" worktree add -B "$unique" "$path" "$remote/$branch"
+    # Store the sha of the remote branch HEAD
+      git -C "$(repo_root)" rev-parse "$remote/$branch" | cut -c1-7 | tr -d ':' > "$path/.sha"
+    echo "Worktree created at: $path (remote branch: $remote/$branch, unique: $unique)"
+  fi
   if [[ "$open_in_vscode" == "true" ]]; then
     if ! command -v code >/dev/null 2>&1; then
       echo "warning: 'code' command not found. Cannot open in VS Code." >&2
@@ -205,10 +217,14 @@ INTEGRATION_HELP
 cmd_list() {
   require_git_repo
   local wdir; wdir="$(worktrees_dir)"
-  for d in "$wdir"/*; do
-    [[ -d "$d" ]] || continue
-    local unique; unique="$(basename "$d")"
-    echo "$unique   $d"
+    for d in "$wdir"/*; do
+      [[ -d "$d" ]] || continue
+      local unique; unique="$(basename "$d")"
+      local sha=""
+      if [[ -f "$d/.sha" ]]; then
+        sha="$(cat "$d/.sha" | tr -d ':\n')"
+      fi
+      printf "%s [%-7s]  %s\n" "$unique" "$sha" "$d"
   done
 }
 
