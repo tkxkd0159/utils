@@ -14,15 +14,18 @@ repo_root() { git rev-parse --show-toplevel; }
 repo_name() { basename "$(repo_root)"; }
 worktrees_dir() { echo "$(repo_root)/../$(repo_name).worktrees"; }
 
-# Return worktree path for a branch name (local branch, no refs/heads/)
-worktree_path_for_branch() {
-  local br="refs/heads/$1"
+# Return worktree path for a unique name (worktree dir name)
+worktree_path_for_unique() {
+  local unique="$1"
+  local wdir; wdir="$(worktrees_dir)"
+  local path="$wdir/$unique"
+  if [[ -d "$path" ]]; then
+    echo "$path"
+    return 0
+  fi
+  # Fallback: search in git worktree list
   git -C "$(repo_root)" worktree list --porcelain |
-    awk -v br="$br" '
-      /^worktree /{p=$2}
-      /^branch /{b=$2}
-      /^$/ { if (b==br) { print p; exit } p=""; b="" }
-    '
+    awk -v u="$unique" '/^worktree /{p=$2} /^$/ { if (p~u) { print p; exit } p="" }'
 }
 
 # Ensure the remote exists; prompt to add if missing. May rename remote.
@@ -103,34 +106,27 @@ USAGE
 
 cmd_add() {
   local open_in_vscode="$1"; shift
-  local purpose="$1"; shift
+  local unique="$1"; shift
   local ref="${1:-}"
 
   require_git_repo
 
+  # Check if unique name is already in use
+  local wdir; wdir="$(worktrees_dir)"
+  local path="$wdir/$unique"
+  if [[ -d "$path" ]]; then
+    die "unique name '$unique' already in use at: $path"
+  fi
+
   # Detect if ref is a SHA (40 hex chars or short SHA)
   if [[ "$ref" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
-    # SHA ref: no remote/branch, just commit
     local sha="$ref"
-    local target="sha-${sha}-gwt-${purpose}"
-    local wdir
-    wdir="$(worktrees_dir)"
-    mkdir -p "$wdir"
-    local path="$wdir/$target"
-
-    # If the SHA worktree is already checked out elsewhere, fail early.
-    if p=$(worktree_path_for_branch "$target"); [[ -n "${p:-}" ]]; then
-      die "commit '$sha' already checked out at: $p"
-    fi
-
     # Validate SHA exists
     if ! git -C "$(repo_root)" cat-file -e "$sha"^{commit} 2>/dev/null; then
       die "commit '$sha' not found"
     fi
-
     git -C "$(repo_root)" worktree add "$path" "$sha"
-    echo "Worktree created at: $path (purpose: $purpose, sha: $sha)"
-
+    echo "Worktree created at: $path (sha: $sha, unique: $unique)"
     if [[ "$open_in_vscode" == "true" ]]; then
       if ! command -v code >/dev/null 2>&1; then
         echo "warning: 'code' command not found. Cannot open in VS Code." >&2
@@ -142,27 +138,15 @@ cmd_add() {
     return
   fi
 
-  # Otherwise, treat as branch (existing logic)
+  # Otherwise, treat as branch
   read -r remote branch < <(parse_ref "$ref")
   remote="$(ensure_remote "$remote")"
-
-  local target="${remote}-${branch}-gwt-${purpose}"
-  local wdir
-  wdir="$(worktrees_dir)"
-  mkdir -p "$wdir"
-  local path="$wdir/$target"
-
-  # If the branch is already checked out elsewhere, fail early.
-  if p=$(worktree_path_for_branch "$target"); [[ -n "${p:-}" ]]; then
-    die "branch '$target' already checked out at: $p"
-  fi
 
   # Ensure the remote-tracking ref exists
   git -C "$(repo_root)" fetch "$remote" "$branch"
 
-  git -C "$(repo_root)" worktree add -B "$target" "$path" "$remote/$branch"
-  echo "Worktree created at: $path (purpose: $purpose)"
-
+  git -C "$(repo_root)" worktree add -B "$unique" "$path" "$remote/$branch"
+  echo "Worktree created at: $path (branch: $remote/$branch, unique: $unique)"
   if [[ "$open_in_vscode" == "true" ]]; then
     if ! command -v code >/dev/null 2>&1; then
       echo "warning: 'code' command not found. Cannot open in VS Code." >&2
@@ -174,48 +158,27 @@ cmd_add() {
 }
 
 cmd_open() {
-  local purpose="$1"; shift
-  local ref="${1:-}"
-
+  local unique="$1"; shift
   require_git_repo
-  read -r remote branch < <(parse_ref "$ref")
-
-  local target_branch="${remote}-${branch}-gwt-${purpose}"
-
-  local path
-  path="$(worktree_path_for_branch "$target_branch")"
-
+  local path; path="$(worktree_path_for_unique "$unique")"
   if [[ -z "$path" ]]; then
-    die "worktree for '$remote:$branch' (purpose: $purpose) not found. Use 'gw add --purpose $purpose' to create it first."
+    die "worktree for unique name '$unique' not found. Use 'gw add $unique ...' to create it first."
   fi
-
   if ! command -v code >/dev/null 2>&1; then
     die "'code' command not found. Cannot open in VS Code."
   fi
-
   echo "Opening worktree at: $path"
   code "$path"
 }
 
 cmd_cd() {
-  local purpose="$1"; shift
-  local ref="${1:-}"
-
+  local unique="$1"; shift
   require_git_repo
-  read -r remote branch < <(parse_ref "$ref")
-
-  local target_branch="${remote}-${branch}-gwt-${purpose}"
-
-  local path
-  path="$(worktree_path_for_branch "$target_branch")"
-
+  local path; path="$(worktree_path_for_unique "$unique")"
   if [[ -z "$path" ]]; then
-    die "worktree for '$remote:$branch' (purpose: $purpose) not found. Use 'gw add --purpose $purpose' to create it first."
+    die "worktree for unique name '$unique' not found. Use 'gw add $unique ...' to create it first."
   fi
-
-  # Check if we're being called from the shell function wrapper
   if [[ -z "${GW_WRAPPER:-}" ]]; then
-    # Direct execution - shell function not installed
     cat >&2 <<'INTEGRATION_HELP'
 The 'cd' command requires shell integration to work.
 
@@ -236,88 +199,42 @@ Then reload your shell: source ~/.bashrc
 INTEGRATION_HELP
     exit 1
   fi
-
-  # Output the command for the shell function to evaluate
   echo "cd \"$path\""
 }
 
 cmd_list() {
   require_git_repo
-  local root; root="$(repo_root)"
-  git -C "$root" worktree list --porcelain |
-    awk '
-      BEGIN{p=""; b=""}
-      /^worktree /{p=substr($0,10)}
-      /^branch /{b=$2; sub(/^refs\/heads\//,"",b)}
-      /^$/{
-        if (b ~ /-gwt-[^\/]+$/ || p ~ /-gwt-[^\/]+$/) {
-          if (b=="") { bb=p; sub(/^.*\//,"",bb); b=bb }
-          print b "\t" p
-        }
-        p=""; b=""
-      }' |
-    while IFS=$'\t' read -r name path; do
-      # Extract purpose from branch name: <remote>-<branch>-gwt-<purpose>
-      purpose=""
-      if [[ "$name" =~ -gwt-([^/]+)$ ]]; then
-        purpose="${BASH_REMATCH[1]}"
-      fi
-
-      # Resolve upstream like origin/feature/x
-      up="$(git -C "$root" for-each-ref --format='%(upstream:short)' "refs/heads/$name" 2>/dev/null || true)"
-      if [[ -n "$up" ]]; then
-        printf "%-40s %-10s %s\n" "${up%%/*}:${up#*/}" "[$purpose]" "$path"
-      else
-        # Fallback: derive from local branch name
-        base="${name%-gwt-*}"
-        if [[ "$base" == *-* ]]; then
-          printf "%-40s %-10s %s\n" "${base%%-*}:${base#*-}" "[$purpose]" "$path"
-        else
-          printf "%-40s %-10s %s\n" "?:${base}" "[$purpose]" "$path"
-        fi
-      fi
-    done
+  local wdir; wdir="$(worktrees_dir)"
+  for d in "$wdir"/*; do
+    [[ -d "$d" ]] || continue
+    local unique; unique="$(basename "$d")"
+    echo "$unique   $d"
+  done
 }
 
 cmd_remove() {
-  local purpose="$1"; shift
-  local ref="${1:-}"
-
+  local unique="$1"; shift
   require_git_repo
-  read -r remote branch < <(parse_ref "$ref")
-
-  local target="${remote}-${branch}-gwt-${purpose}"
-
-  local path
-  path="$(worktree_path_for_branch "$target")"
-  [[ -z "$path" ]] && path="$(worktrees_dir)/$target"
-
+  local wdir; wdir="$(worktrees_dir)"
+  local path="$wdir/$unique"
   local acted=false
-
   if [[ -d "$path" ]]; then
-    # Check if current directory is inside the worktree being removed
-    local current_dir
-    current_dir="$(pwd -P)"
-    local worktree_path
-    worktree_path="$(cd "$path" && pwd -P)"
-
+    local current_dir; current_dir="$(pwd -P)"
+    local worktree_path; worktree_path="$(cd "$path" && pwd -P)"
     if [[ "$current_dir" == "$worktree_path"* ]]; then
       die "cannot remove worktree: your current terminal session is inside this worktree ($path). Please 'cd' to another directory first."
     fi
-
     git -C "$(repo_root)" worktree remove --force "$path"
     acted=true
   fi
-
-  if git -C "$(repo_root)" show-ref --verify --quiet "refs/heads/$target"; then
-    git -C "$(repo_root)" branch -D "$target"
+  if git -C "$(repo_root)" show-ref --verify --quiet "refs/heads/$unique"; then
+    git -C "$(repo_root)" branch -D "$unique"
     acted=true
   fi
-
   if $acted; then
-    echo "removed: $target"
+    echo "removed: $unique"
   else
-    echo "do nothing: $target not found"
+    echo "do nothing: $unique not found"
   fi
 }
 
@@ -431,28 +348,28 @@ main() {
       cmd_install
       ;;
     add)
-      local purpose="${1:-}"
-      [[ -n "$purpose" ]] || die "PURPOSE required. Usage: gw add [--open] PURPOSE [REMOTE:]BRANCH"
+      local unique="${1:-}"
+      [[ -n "$unique" ]] || die "UNIQUE_NAME required. Usage: gw add [--open] UNIQUE_NAME [REMOTE:]BRANCH|SHA"
       shift
-      cmd_add "$open_in_vscode" "$purpose" "${1:-}"
+      cmd_add "$open_in_vscode" "$unique" "${1:-}"
       ;;
     open)
-      local purpose="${1:-}"
-      [[ -n "$purpose" ]] || die "PURPOSE required. Usage: gw open PURPOSE [REMOTE:]BRANCH"
+      local unique="${1:-}"
+      [[ -n "$unique" ]] || die "UNIQUE_NAME required. Usage: gw open UNIQUE_NAME"
       shift
-      cmd_open "$purpose" "${1:-}"
+      cmd_open "$unique"
       ;;
     cd)
-      local purpose="${1:-}"
-      [[ -n "$purpose" ]] || die "PURPOSE required. Usage: gw cd PURPOSE [REMOTE:]BRANCH"
+      local unique="${1:-}"
+      [[ -n "$unique" ]] || die "UNIQUE_NAME required. Usage: gw cd UNIQUE_NAME"
       shift
-      cmd_cd "$purpose" "${1:-}"
+      cmd_cd "$unique"
       ;;
     remove)
-      local purpose="${1:-}"
-      [[ -n "$purpose" ]] || die "PURPOSE required. Usage: gw remove PURPOSE [REMOTE:]BRANCH"
+      local unique="${1:-}"
+      [[ -n "$unique" ]] || die "UNIQUE_NAME required. Usage: gw remove UNIQUE_NAME"
       shift
-      cmd_remove "$purpose" "${1:-}"
+      cmd_remove "$unique"
       ;;
     list)
       cmd_list
