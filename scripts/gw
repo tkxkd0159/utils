@@ -61,11 +61,11 @@ cmd_usage() {
   cat <<USAGE
 Usage:
   $(basename "$0") install
-  $(basename "$0") add [--open] PURPOSE [REMOTE:]BRANCH
-  $(basename "$0") open PURPOSE [REMOTE:]BRANCH
-  $(basename "$0") cd PURPOSE [REMOTE:]BRANCH
+  $(basename "$0") add [--open] GW_NAME [REMOTE:]BRANCH
+  $(basename "$0") open GW_NAME
+  $(basename "$0") cd GW_NAME
   $(basename "$0") list
-  $(basename "$0") remove PURPOSE [REMOTE:]BRANCH
+  $(basename "$0") remove GW_NAME
 
 Commands:
   install         Auto-install shell integration (required for 'cd' command)
@@ -86,15 +86,15 @@ Options:
 Quick Start:
   $(basename "$0") install                             # First-time setup (one-time only)
   $(basename "$0") add review feature/new-ui           # Create review worktree
-  $(basename "$0") cd review feature/new-ui            # Change to review worktree
+  $(basename "$0") cd review                           # Change to review worktree
 
 Examples:
-  $(basename "$0") add feature feature/new-ui          # Create feature worktree
+  $(basename "$0") add feature feature/new-ui          # Create feature worktree for feature/new-ui branch
   $(basename "$0") add --open bugfix bug-123           # Create and open bugfix worktree
-  $(basename "$0") cd feature upstream:feature/new-ui  # Change to feature worktree (upstream remote)
-  $(basename "$0") open experiment test-idea           # Open experiment worktree
+  $(basename "$0") cd feature                          # Change to feature worktree (upstream remote)
+  $(basename "$0") open experiment                     # Open experiment worktree
   $(basename "$0") list                                # List all managed worktrees
-  $(basename "$0") remove feature feature/new-ui       # Remove feature worktree
+  $(basename "$0") remove feature                      # Remove feature worktree
 
 Notes:
 - Run '$(basename "$0") install' once to enable the 'cd' command
