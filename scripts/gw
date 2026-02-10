@@ -10,7 +10,16 @@ require_git_repo() {
   git rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "not a git repo"
 }
 
-repo_root() { git rev-parse --show-toplevel; }
+repo_root() {
+  local common_dir
+  common_dir="$(git rev-parse --git-common-dir)"
+  common_dir="$(cd "$common_dir" && pwd -P)"
+  if [[ "$(basename "$common_dir")" == ".git" ]]; then
+    (cd "$common_dir/.." && pwd -P)
+    return 0
+  fi
+  git rev-parse --show-toplevel
+}
 repo_name() { basename "$(repo_root)"; }
 worktrees_dir() { echo "$(repo_root)/../$(repo_name).worktrees"; }
 
@@ -64,16 +73,17 @@ Usage:
   $(basename "$0") add [--open] GW_NAME [REMOTE:]BRANCH
   $(basename "$0") open GW_NAME
   $(basename "$0") cd GW_NAME
-  $(basename "$0") list
-  $(basename "$0") remove GW_NAME
+  $(basename "$0") cd -
+  $(basename "$0") ls
+  $(basename "$0") rm GW_NAME
 
 Commands:
   install         Auto-install shell integration (required for 'cd' command)
   add             Create a new worktree for the specified branch
   open            Open an existing worktree in VS Code
   cd              Change to an existing worktree directory (requires 'gw install')
-  list            List all git-worktree worktrees managed by this tool
-  remove          Remove a worktree and its local branch
+  ls              List all git-worktree worktrees managed by this tool
+  rm              Remove a worktree and its local branch
 
 Arguments:
   PURPOSE         Required. Purpose/usage for the worktree
@@ -85,16 +95,17 @@ Options:
 
 Quick Start:
   $(basename "$0") install                             # First-time setup (one-time only)
-  $(basename "$0") add review feature/new-ui           # Create review worktree
-  $(basename "$0") cd review                           # Change to review worktree
+  $(basename "$0") add review-ui feature/new-ui        # Create review worktree
+  $(basename "$0") cd review-ui                        # Change to review worktree
+  $(basename "$0") cd -                                # Change to repo root
 
 Examples:
-  $(basename "$0") add feature feature/new-ui          # Create feature worktree for feature/new-ui branch
-  $(basename "$0") add --open bugfix bug-123           # Create and open bugfix worktree
-  $(basename "$0") cd feature                          # Change to feature worktree (upstream remote)
+  $(basename "$0") add feature-ui upstream:new-ui      # Create a worktree for new-ui branch from upstream remote
+  $(basename "$0") add --open bugfix1 bug-123           # Create and open bugfix worktree
+  $(basename "$0") cd feature-ui                       # Change to feature worktree (upstream remote)
   $(basename "$0") open experiment                     # Open experiment worktree
-  $(basename "$0") list                                # List all managed worktrees
-  $(basename "$0") remove feature                      # Remove feature worktree
+  $(basename "$0") ls                                  # List all managed worktrees
+  $(basename "$0") rm feature feature/new-ui           # Remove feature worktree
 
 Notes:
 - Run '$(basename "$0") install' once to enable the 'cd' command
@@ -186,6 +197,10 @@ cmd_open() {
 cmd_cd() {
   local unique="$1"; shift
   require_git_repo
+  if [[ "$unique" == "-" ]]; then
+    echo "cd \"$(repo_root)\""
+    return 0
+  fi
   local path; path="$(worktree_path_for_unique "$unique")"
   if [[ -z "$path" ]]; then
     die "worktree for unique name '$unique' not found. Use 'gw add $unique ...' to create it first."
@@ -381,13 +396,13 @@ main() {
       shift
       cmd_cd "$unique"
       ;;
-    remove)
+    rm)
       local unique="${1:-}"
-      [[ -n "$unique" ]] || die "UNIQUE_NAME required. Usage: gw remove UNIQUE_NAME"
+      [[ -n "$unique" ]] || die "UNIQUE_NAME required. Usage: gw rm UNIQUE_NAME"
       shift
       cmd_remove "$unique"
       ;;
-    list)
+    ls)
       cmd_list
       ;;
     -h|--help|"")
